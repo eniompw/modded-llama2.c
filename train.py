@@ -35,7 +35,7 @@ def next_multiple_of_n(v: float | int, *, n: int):
 
 # -----------------------------------------------------------------------------
 # I/O
-out_dir = "out_tinystories_modded" # Changed output dir
+out_dir = "out" # Changed output dir
 eval_interval = 500 # Eval more often for smaller dataset/faster training
 log_interval = 10 # Log more often
 eval_iters = 50 # Fewer eval iterations needed for smaller dataset
