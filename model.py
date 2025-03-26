@@ -1,56 +1,80 @@
+# --- START OF model.py (Readable FASTER v2 - No QK-Norm, No Softcap) ---
+
 import math
-import struct
 import inspect
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 @dataclass
 class ModelArgs:
-    # default hyperparameters for the Llama 7B model
+    """
+    Model configuration arguments. Defaults resemble Llama 7B but are typically overridden.
+    """
     dim: int = 4096
     n_layers: int = 32
     n_heads: int = 32
-    n_kv_heads: Optional[int] = None
-    vocab_size: int = 32000
-    hidden_dim: Optional[int] = None
-    multiple_of: int = 256  # MLP hidden layer size will be multiple of
-    norm_eps: float = 1e-5
-    max_seq_len: int = 2048
-    dropout: float = 0.0
+    n_kv_heads: Optional[int] = None # For Grouped Query Attention (GQA)
+    vocab_size: int = 32000         # Usually set dynamically based on tokenizer + padding
+    hidden_dim: Optional[int] = None # Calculated by SwiGLU if None
+    multiple_of: int = 256          # Makes SwiGLU hidden layer size a multiple of this
+    norm_eps: float = 1e-5          # RMSNorm epsilon, consistent with Llama 2
+    max_seq_len: int = 2048          # Max sequence length for RoPE precomputation
+    dropout: float = 0.0            # Dropout rate
 
 
 class RMSNorm(torch.nn.Module):
-    def __init__(self, dim: int, eps: float):
+    """
+    Root Mean Square Layer Normalization.
+    Derived from https://arxiv.org/abs/1910.07467
+    """
+    def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
+        self.weight = nn.Parameter(torch.ones(dim)) # Learnable gain parameter
 
     def _norm(self, x):
+        """Applies the RMSNorm normalization formula."""
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
     def forward(self, x):
+        """Forward pass: normalizes input, then applies learnable gain."""
+        # Normalize in float32 for stability, then cast back
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+    """
+    Precomputes the rotary frequency positional embeddings (RoPE)
+    cis(theta*m) = cos(theta*m) + i*sin(theta*m) represented by separate cos/sin tensors.
+    """
+    # Calculate frequencies based on dimension and theta
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
-    t = torch.arange(end, device=freqs.device)  # type: ignore
-    freqs = torch.outer(t, freqs).float()  # type: ignore
-    freqs_cos = torch.cos(freqs)  # real part
-    freqs_sin = torch.sin(freqs)  # imaginary part
+    # Create sequence position indices [0, 1, ..., end-1]
+    t = torch.arange(end, device=freqs.device)
+    # Compute outer product: (seq_len, dim/2) tensor where freqs[i, j] = i * freqs[j]
+    freqs = torch.outer(t, freqs).float()
+    # Compute cosine and sine values: (seq_len, dim/2) each
+    freqs_cos = torch.cos(freqs)
+    freqs_sin = torch.sin(freqs)
     return freqs_cos, freqs_sin
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
+    """
+    Reshapes frequency tensors to allow broadcasting with input query/key tensors.
+    Input x shape: (batch, seq_len, heads, head_dim)
+    Output freqs shape: (1, seq_len, 1, head_dim/2 or head_dim if complex)
+    """
     ndim = x.ndim
     assert 0 <= 1 < ndim
-    assert freqs_cis.shape == (x.shape[1], x.shape[-1])
-    shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
+    # Ensure freqs shape matches (seq_len, head_dim_feature_part)
+    assert freqs_cis.shape == (x.shape[1], x.shape[-1]), f"{freqs_cis.shape=} vs {(x.shape[1], x.shape[-1])=}"
+    # Get shape for broadcasting: [1, seq_len, 1, head_dim_feature_part]
+    shape = [1 if i != 1 and i != ndim - 1 else d for i, d in enumerate(x.shape)]
     return freqs_cis.view(shape)
 
 def apply_rotary_emb(
@@ -59,60 +83,82 @@ def apply_rotary_emb(
     freqs_cos: torch.Tensor,
     freqs_sin: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-    # reshape xq and xk to match the complex representation
+    """
+    Applies Rotary Positional Embedding (RoPE) to query and key tensors.
+    """
+    # Reshape xq/xk to separate real/imaginary parts (handled as pairs of features)
+    # xq: (bs, seqlen, n_heads, head_dim) -> (bs, seqlen, n_heads, head_dim/2, 2)
     xq_r, xq_i = xq.float().reshape(xq.shape[:-1] + (-1, 2)).unbind(-1)
     xk_r, xk_i = xk.float().reshape(xk.shape[:-1] + (-1, 2)).unbind(-1)
 
-    # reshape freqs_cos and freqs_sin for broadcasting
+    # Reshape freqs_cos/sin for broadcasting: (1, seqlen, 1, head_dim/2)
     freqs_cos = reshape_for_broadcast(freqs_cos, xq_r)
     freqs_sin = reshape_for_broadcast(freqs_sin, xq_r)
 
-    # apply rotation using real numbers
+    # Apply rotation using real components
+    # Formula: (x_r + i*x_i) * (c + i*s) = (x_r*c - x_i*s) + i*(x_r*s + x_i*c)
     xq_out_r = xq_r * freqs_cos - xq_i * freqs_sin
     xq_out_i = xq_r * freqs_sin + xq_i * freqs_cos
     xk_out_r = xk_r * freqs_cos - xk_i * freqs_sin
     xk_out_i = xk_r * freqs_sin + xk_i * freqs_cos
 
-    # flatten last two dimensions
+    # Combine back into (bs, seqlen, n_heads, head_dim) shape
     xq_out = torch.stack([xq_out_r, xq_out_i], dim=-1).flatten(3)
     xk_out = torch.stack([xk_out_r, xk_out_i], dim=-1).flatten(3)
 
+    # Cast back to original dtype
     return xq_out.type_as(xq), xk_out.type_as(xk)
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
+    """
+    Repeats Key/Value tensors for Grouped Query Attention (GQA).
+    If n_rep=1 (Multi-Head Attention), returns input unchanged.
+    Otherwise, duplicates KV heads to match the number of query heads.
+    Input x shape: (bs, seqlen, n_kv_heads, head_dim)
+    Output shape: (bs, seqlen, n_heads, head_dim)
+    """
     bs, slen, n_kv_heads, head_dim = x.shape
     if n_rep == 1:
         return x
+    # Expand and reshape: Insert new dim, expand, reshape to final size
     return (
-        x[:, :, :, None, :]
-        .expand(bs, slen, n_kv_heads, n_rep, head_dim)
-        .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
+        x[:, :, :, None, :] # (bs, slen, n_kv_heads, 1, head_dim)
+        .expand(bs, slen, n_kv_heads, n_rep, head_dim) # (bs, slen, n_kv_heads, n_rep, head_dim)
+        .reshape(bs, slen, n_kv_heads * n_rep, head_dim) # (bs, slen, n_heads, head_dim)
     )
 
 class Attention(nn.Module):
+    """
+    Multi-Head or Grouped Query Attention module.
+    Uses RoPE for positional embeddings and supports Flash Attention 2 if available.
+    """
     def __init__(self, args: ModelArgs):
         super().__init__()
+        self.n_heads = args.n_heads # Number of query heads
+        # Determine number of key/value heads for GQA/MQA
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
-        assert args.n_heads % self.n_kv_heads == 0
-        model_parallel_size = 1
-        self.n_local_heads = args.n_heads // model_parallel_size
-        self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
-        self.n_rep = self.n_local_heads // self.n_local_kv_heads
+        assert args.n_heads % self.n_kv_heads == 0, "n_heads must be divisible by n_kv_heads"
+        # Repetition factor for repeating KV heads in GQA
+        self.n_rep = self.n_heads // self.n_kv_heads
         self.head_dim = args.dim // args.n_heads
+
+        # Linear layers for Q, K, V projections
         self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
         self.wk = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
         self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+        # Output projection layer
         self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
-        self.attn_dropout = nn.Dropout(args.dropout)
-        self.resid_dropout = nn.Dropout(args.dropout)
-        self.dropout = args.dropout
 
-        # use flash attention or a manual implementation?
+        # Dropout layers
+        self.attn_dropout = nn.Dropout(args.dropout) # Dropout on attention scores (for non-Flash)
+        self.resid_dropout = nn.Dropout(args.dropout) # Dropout on output projection
+        self.dropout = args.dropout # General dropout rate
+
+        # Check for Flash Attention 2 support
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+            # Precompute causal mask for manual attention implementation
             mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
             mask = torch.triu(mask, diagonal=1)
             self.register_buffer("mask", mask)
@@ -123,64 +169,94 @@ class Attention(nn.Module):
         freqs_cos: torch.Tensor,
         freqs_sin: torch.Tensor,
     ):
-        bsz, seqlen, _ = x.shape
+        bsz, seqlen, _ = x.shape # Input shape: (batch_size, sequence_length, dimension)
 
-        # QKV
+        # Project input to Q, K, V
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
-        xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
-        xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
-        # RoPE relative positional embeddings
+        # Reshape Q, K, V for multi-head structure
+        xq = xq.view(bsz, seqlen, self.n_heads, self.head_dim)
+        xk = xk.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
+        xv = xv.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
+
+        # Apply RoPE positional embeddings *before* GQA repetition
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
 
-        # grouped multiquery attention: expand out keys and values
-        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        # Repeat KV heads if using GQA/MQA (n_rep > 1)
+        xk = repeat_kv(xk, self.n_rep)
+        xv = repeat_kv(xv, self.n_rep)
 
-        # make heads into a batch dimension
-        xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+        # Transpose for attention calculation: (bs, n_heads, seqlen, head_dim)
+        xq = xq.transpose(1, 2)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-        # flash implementation
+        # Perform attention calculation
         if self.flash:
-            output = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True)
+            # Use Flash Attention 2 (efficient, handles masking and dropout internally)
+            output = F.scaled_dot_product_attention(
+                xq, xk, xv,
+                attn_mask=None, # Causal mask is implicit
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=True
+            )
         else:
-            # manual implementation
+            # Manual attention calculation (less efficient)
+            # (bs, n_heads, seqlen, head_dim) @ (bs, n_heads, head_dim, seqlen) -> (bs, n_heads, seqlen, seqlen)
             scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
+            # Apply causal mask
             assert hasattr(self, 'mask')
-            scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
+            scores = scores + self.mask[:, :, :seqlen, :seqlen]
+            # Softmax and dropout on scores
             scores = F.softmax(scores.float(), dim=-1).type_as(xq)
             scores = self.attn_dropout(scores)
-            output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+            # (bs, n_heads, seqlen, seqlen) @ (bs, n_heads, seqlen, head_dim) -> (bs, n_heads, seqlen, head_dim)
+            output = torch.matmul(scores, xv)
 
-        # restore time as batch dimension and concat heads
+        # Restore shape: (bs, seqlen, n_heads, head_dim) -> (bs, seqlen, dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
 
-        # final projection into the residual stream
+        # Final output projection
         output = self.wo(output)
-        output = self.resid_dropout(output)
+        output = self.resid_dropout(output) # Apply residual dropout
         return output
 
 
 class FeedForward(nn.Module):
-    def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
+    """
+    Position-wise Feed-Forward network using SwiGLU activation.
+    SwiGLU(x, W, V, W2) = (SiLU(xW) * xV)W2
+    See https://arxiv.org/abs/2002.05202
+    """
+    def __init__(self, dim: int, hidden_dim: Optional[int], multiple_of: int, dropout: float):
         super().__init__()
+        # Calculate hidden dimension if not provided, according to Llama 2 paper
         if hidden_dim is None:
             hidden_dim = 4 * dim
             hidden_dim = int(2 * hidden_dim / 3)
+            # Ensure hidden_dim is a multiple of `multiple_of` for efficiency
             hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
-        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
-        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
-        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+
+        # Linear layers for SwiGLU
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False) # Corresponds to W in SwiGLU formula
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False) # Corresponds to V in SwiGLU formula
+        # Down-projection layer
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False) # Corresponds to W2 in SwiGLU formula
+
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
+        # Apply SwiGLU activation: SiLU(x @ w1) * (x @ w3)
+        swiglu_out = F.silu(self.w1(x)) * self.w3(x)
+        # Apply down-projection and dropout
+        return self.dropout(self.w2(swiglu_out))
 
 
 class TransformerBlock(nn.Module):
+    """
+    A single block of the Transformer model, combining Attention and FeedForward layers.
+    Uses pre-normalization (Norm -> Layer -> Add) structure.
+    """
     def __init__(self, layer_id: int, args: ModelArgs):
         super().__init__()
         self.n_heads = args.n_heads
@@ -194,150 +270,258 @@ class TransformerBlock(nn.Module):
             dropout=args.dropout,
         )
         self.layer_id = layer_id
+        # Normalization layers before Attention and FeedForward
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(self, x, freqs_cos, freqs_sin):
+        """ Forward pass with residual connections. """
+        # Attention part: Residual + Attention(Norm(x))
         h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
+        # FeedForward part: Residual + FeedForward(Norm(h))
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
 
 class Transformer(nn.Module):
-    last_loss: Optional[torch.Tensor]
+    """
+    The main Transformer model class.
+    """
+    last_loss: Optional[torch.Tensor] # Stores loss from the last forward pass if targets are provided
 
     def __init__(self, params: ModelArgs):
         super().__init__()
         self.params = params
-        self.vocab_size = params.vocab_size
+        self.vocab_size = params.vocab_size # Note: This should be the *padded* vocab size
         self.n_layers = params.n_layers
 
+        # Token embeddings
         self.tok_embeddings = nn.Embedding(params.vocab_size, params.dim)
+        # Input dropout
         self.dropout = nn.Dropout(params.dropout)
+        # Transformer layers
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(layer_id, params))
+        # Final normalization layer
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
+        # Output linear layer (logits head)
         self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
 
-        # share the unembedding parameters with the embedding parameters
-        self.tok_embeddings.weight = self.output.weight # https://paperswithcode.com/method/weight-tying
+        # Weight Tying: Share weights between token embeddings and final output layer
+        # See: https://paperswithcode.com/method/weight-tying
+        self.tok_embeddings.weight = self.output.weight
 
-        # some useful precompute for the RoPE relative positional embeddings
-        freqs_cos, freqs_sin = precompute_freqs_cis(self.params.dim // self.params.n_heads, self.params.max_seq_len)
+        # Precompute RoPE frequencies for max sequence length
+        freqs_cos, freqs_sin = precompute_freqs_cis(
+            self.params.dim // self.params.n_heads, self.params.max_seq_len
+        )
+        # Register as non-persistent buffers (not saved in state_dict)
         self.register_buffer("freqs_cos", freqs_cos, persistent=False)
         self.register_buffer("freqs_sin", freqs_sin, persistent=False)
 
-        # init all weights
+        # Initialize all weights using standard method first
         self.apply(self._init_weights)
-        # apply special scaled init to the residual projections, per GPT-2 paper
-        for pn, p in self.named_parameters():
-            if pn.endswith('w3.weight') or pn.endswith('wo.weight'):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * params.n_layers))
 
-        # Initialize attribute for the loss of the last forward call. This will be set if the forward is called with a targets tensor.
+        # === Zero-Initialize Residual Projections (Modification) ===
+        # This overrides the standard init for wo.weight and w2.weight.
+        # Zero-init helps stabilize training, especially early on, by ensuring
+        # residual blocks initially act closer to identity functions.
+        with torch.no_grad():
+            for name, p in self.named_parameters():
+                # Target Attention output projection (wo) and FFN down-projection (w2)
+                if name.endswith('wo.weight') or name.endswith('w2.weight'):
+                     p.zero_()
+                     # print(f"Zero-initialized {name}") # Optional: for verification
+        # =============================================================
+
+        # Initialize attribute for storing the loss
         self.last_loss = None
 
     def _init_weights(self, module):
+        """ Standard weight initialization for linear and embedding layers. """
         if isinstance(module, nn.Linear):
+            # Normal init with std=0.02 (common practice for Transformers)
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # Biases (if they existed) would be zero-initialized
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
+            # Normal init for embeddings
+            # Note: Due to weight tying, this also initializes self.output.weight
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, tokens: torch.Tensor, targets: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Forward pass of the Transformer model.
+        Calculates logits and optionally computes the loss if targets are provided.
+        """
         _bsz, seqlen = tokens.shape
+        # Token embeddings + dropout
         h = self.tok_embeddings(tokens)
         h = self.dropout(h)
+
+        # Get RoPE frequencies for the current sequence length
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
 
+        # Apply transformer blocks
         for layer in self.layers:
             h = layer(h, freqs_cos, freqs_sin)
+
+        # Final normalization
         h = self.norm(h)
 
+        # Calculate output logits
         if targets is not None:
-            # if we are given some desired targets also calculate the loss
-            logits = self.output(h)
+            # Training or validation with loss calculation
+            logits = self.output(h) # Calculate logits for the entire sequence
+            # Calculate cross-entropy loss
+            # Loss is calculated on the *padded* vocab size dimension
             self.last_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
         else:
-            # inference-time mini-optimization: only forward the output on the very last position
-            logits = self.output(h[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            # Inference: Optimize by calculating logits only for the last token
+            # Keep the sequence dimension using list slicing [-1]
+            logits = self.output(h[:, [-1], :])
             self.last_loss = None
 
-        return logits
+        return logits # Return logits (raw, without softcap in this version)
 
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
-        # start with all of the candidate parameters
-        param_dict = {pn: p for pn, p in self.named_parameters()}
-        # filter out those that do not require grad
-        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
-        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
-        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
-        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
-        optim_groups = [
-            {'params': decay_params, 'weight_decay': weight_decay},
-            {'params': nodecay_params, 'weight_decay': 0.0}
+    def configure_optimizers(self, weight_decay, learning_rate, betas, adam_eps, device_type):
+        """
+        Configures the AdamW optimizer with parameter groups for different LR/WD settings.
+        This setup is inspired by practices observed in other successful training recipes.
+
+        Args:
+            weight_decay: Base weight decay value for hidden matrices.
+            learning_rate: Base learning rate, multipliers applied per group.
+            betas: Adam betas (e.g., (0.9, 0.95)).
+            adam_eps: Adam epsilon (e.g., 1e-10 or 1e-8).
+            device_type: 'cuda' or 'cpu'.
+        """
+        # Start with all parameters that require gradients
+        param_dict = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
+
+        # --- Parameter Grouping Strategy ---
+        # 1. Tied Embeddings/Output Head: Typically performs better without weight decay.
+        # 2. Norms & Scalars (1D params like biases, norm gains): No weight decay; often benefit from lower LR.
+        # 3. Hidden Matrices (>=2D weights in Linear layers, excluding tied embed/head): Apply weight decay here.
+
+        # Identify the single tied weight tensor (embedding & output head)
+        # It contains 'tok_embeddings.weight' in its name.
+        embed_head_params = [p for n, p in param_dict.items() if "tok_embeddings.weight" in n]
+
+        # Identify Norm weights and any other 1D parameters (scalars/biases)
+        scalar_norm_params = [p for n, p in param_dict.items() if p.ndim < 2 or "norm.weight" in n]
+
+        # Identify all other >= 2D weights (these are the hidden matrices in Attention/FFN)
+        hidden_matrix_params = [
+            p for n, p in param_dict.items()
+            if p.ndim >= 2
+            and "tok_embeddings.weight" not in n # Exclude the tied weight
+            and "norm.weight" not in n          # Exclude norm weights (already in scalar_norm_params)
         ]
-        num_decay_params = sum(p.numel() for p in decay_params)
-        num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
-        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
-        # Create AdamW optimizer and use the fused version if it is available
+
+        # Sanity check: Ensure all parameters are assigned to exactly one group
+        num_params_total = sum(p.numel() for p in param_dict.values())
+        num_params_grouped = sum(p.numel() for p in embed_head_params) + \
+                             sum(p.numel() for p in scalar_norm_params) + \
+                             sum(p.numel() for p in hidden_matrix_params)
+        assert num_params_total == num_params_grouped, f"Parameter mismatch: {num_params_total} != {num_params_grouped}"
+        assert len(param_dict) == len(embed_head_params) + len(scalar_norm_params) + len(hidden_matrix_params), "Tensor count mismatch"
+
+        # Define LR multipliers for each group (can be tuned)
+        lr_mult_embed_head = 1.0 # Example: Use base LR
+        lr_mult_hidden = 1.0     # Example: Use base LR
+        lr_mult_scalar_norm = 0.1 # Example: Use 10x lower LR for norms/scalars
+
+        # Create optimizer groups with specific settings
+        optim_groups = [
+            {"params": embed_head_params,    "lr": learning_rate * lr_mult_embed_head, "weight_decay": 0.0}, # No WD for tied embed/head
+            {"params": scalar_norm_params,   "lr": learning_rate * lr_mult_scalar_norm,"weight_decay": 0.0}, # No WD, low LR for norms/scalars
+            {"params": hidden_matrix_params, "lr": learning_rate * lr_mult_hidden,     "weight_decay": weight_decay}, # Apply WD here
+        ]
+
+        # Log the parameter group setup
+        print("Optimizer groups:")
+        total_params = 0
+        for i, group in enumerate(optim_groups):
+            group_params = sum(p.numel() for p in group['params'])
+            total_params += group_params
+            # Use group['lr'] directly as initial_lr might not be set yet
+            lr_mult = group['lr'] / learning_rate if learning_rate > 0 else 0
+            print(f"  Group {i}: {group_params:,} params, LR_mult={lr_mult:.2f}, WD={group['weight_decay']}")
+        print(f"Total optimizable parameters: {total_params:,}")
+
+        # Create AdamW optimizer, preferring fused implementation if available
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
-        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, **extra_args)
-        print(f"using fused AdamW: {use_fused}")
+        optimizer = torch.optim.AdamW(optim_groups, betas=betas, eps=adam_eps, **extra_args)
+        print(f"Using fused AdamW: {use_fused}")
+
+        # Store the initial learning rate in each group dictionary; needed by the LR scheduler in train.py
+        for group in optimizer.param_groups:
+            group['initial_lr'] = group['lr']
 
         return optimizer
 
     def estimate_mfu(self, fwdbwd_per_iter, dt):
-        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
-        # first estimate the number of flops we do per iteration.
-        # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
-        N = sum(p.numel() for p in self.parameters())
+        """
+        Estimate Model Flops Utilization (MFU) in units of A100 bfloat16 peak FLOPS.
+        Provides an approximate measure of hardware efficiency.
+        """
+        # Estimate number of FLOPs per iteration using PaLM paper appendix B formula
+        N = sum(p.numel() for p in self.parameters()) # Total parameters
         cfg = self.params
         L, H, Q, T = cfg.n_layers, cfg.n_heads, cfg.dim//cfg.n_heads, cfg.max_seq_len
+        # Approx formula: 6*N*T (matmuls) + 12*L*H*Q*T^2 (attention) -- simplified here assuming T=max_seq_len
+        # Simplified PaLM formula: assumes T is factored out for flops/token
         flops_per_token = 6*N + 12*L*H*Q*T
-        flops_per_fwdbwd = flops_per_token * T
-        flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
-        # express our flops throughput as ratio of A100 bfloat16 peak flops
-        flops_achieved = flops_per_iter * (1.0/dt) # per second
-        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        flops_per_fwdbwd = flops_per_token * T # Multiply by sequence length
+        flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter # Multiply by samples per iteration
+
+        # Calculate achieved FLOPS per second
+        flops_achieved = flops_per_iter * (1.0/dt)
+        # Reference peak FLOPS for A100 bfloat16 (adjust if using different hardware)
+        flops_promised = 312e12
         mfu = flops_achieved / flops_promised
         return mfu
 
     @torch.inference_mode()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
-        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
-        the sequence max_new_tokens times, feeding the predictions back into the model each time.
-        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
-        Also note this is a super inefficient version of sampling with no key/value cache.
+        Generates text sequences based on a conditioning sequence `idx`.
+        Simple implementation without Key/Value caching (inefficient for long sequences).
         """
+        self.eval() # Set model to evaluation mode
         for _ in range(max_new_tokens):
-            # if the sequence context is growing too long we must crop it at block_size
+            # Crop context if it exceeds max sequence length
             idx_cond = idx if idx.size(1) <= self.params.max_seq_len else idx[:, -self.params.max_seq_len:]
-            # forward the model to get the logits for the index in the sequence
-            logits = self(idx_cond)
-            logits = logits[:, -1, :] # crop to just the final time step
+            # Forward pass to get logits for the next token
+            logits = self(idx_cond) # Calls forward with targets=None
+            logits = logits[:, -1, :] # Get logits for the last token only
+
+            # Apply temperature scaling
             if temperature == 0.0:
-                # "sample" the single most likely index
+                # Greedy sampling: pick the single most likely token
                 _, idx_next = torch.topk(logits, k=1, dim=-1)
             else:
-                # pluck the logits at the final step and scale by desired temperature
                 logits = logits / temperature
-                # optionally crop the logits to only the top k options
+                # Optional Top-K sampling: Restrict sampling to top k most likely tokens
                 if top_k is not None:
                     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    # Set logits below the k-th threshold to -infinity
                     logits[logits < v[:, [-1]]] = -float('Inf')
-                # apply softmax to convert logits to (normalized) probabilities
+                # Convert logits to probabilities using softmax
                 probs = F.softmax(logits, dim=-1)
+                # Sample the next token index from the probability distribution
                 idx_next = torch.multinomial(probs, num_samples=1)
-            # append sampled index to the running sequence and continue
+
+            # Append the sampled token index to the sequence
             idx = torch.cat((idx, idx_next), dim=1)
 
+        self.train() # Restore model to training mode if needed elsewhere
         return idx
+
+# --- END OF model.py ---
