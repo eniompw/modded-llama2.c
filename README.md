@@ -76,7 +76,7 @@ python tinystories.py download
     python tinystories.py train_vocab --vocab_size=128
     python tinystories.py pretokenize --vocab_size=128
     ```
-    When training with this custom tokenizer, you'll need to specify `--vocab_source=custom` and `--vocab_size=128` to `train.py`. The C-level tokenizer file will be `data/tok128.bin`.
+    When training with this custom tokenizer, you'll need to specify `--vocab_source=custom` and `--vocab_size=128` to `train.py`. The C-level tokenizer file will be `data/tok128.bin`. Note that the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) example downloads pre-built tokenizer files for a 128-token vocabulary, including [`tok128.vocab`](https://huggingface.co/datasets/enio/TinyStories/blob/main/tok128/tok128.vocab) and `tok128.model`, from Hugging Face to generate `data/tok128.bin`.
 
 ## Training
 
