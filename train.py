@@ -164,7 +164,16 @@ for group in optimizer.param_groups:
     if 'initial_lr' not in group:
          group['initial_lr'] = group['lr']
 
-# --- Compile Block Removed (compile is False) ---
+if compile:
+    print("Compiling the model... (this may take a ~minute)")
+    try:
+        model = torch.compile(model) # Requires PyTorch 2.0+
+        print("Model compiled successfully.")
+    except Exception as e:
+        print(f"Model compilation failed: {e}. Proceeding without compilation.")
+        # Optionally, set compile to False if it fails, to avoid issues later
+        # compile = False 
+
 # --- DDP Wrapping Removed ---
 raw_model = model # No DDP wrapping, raw_model is just model
 
