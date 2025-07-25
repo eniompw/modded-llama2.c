@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from functools import partial, lru_cache
 
+from sympy import Number
 import torch
 import torch.nn.functional as F # Needed for estimate_loss fallback
 
@@ -31,24 +32,24 @@ def next_multiple_of_n(v: float | int, *, n: int):
     return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
 
 # -----------------------------------------------------------------------------
-# Default configuration (Many will be overridden by your command via configurator.py)
+# Default configuration
 out_dir = "out"
-eval_interval = 500
-log_interval = 10
-eval_iters = 50
-eval_only = False
-always_save_checkpoint = False # Default changed, but your command sets True
-init_from = "scratch"  # 'scratch' or 'resume'
+eval_interval = 5000     # Evaluate every 5000 iterations
+log_interval = 10        # Log every 10 iterations
+eval_iters = 50          # Number of iterations to evaluate loss
+eval_only = False        # If True, only evaluate and exit
+always_save_checkpoint = True  # Always save checkpoint if validation loss improves
+init_from = "scratch"   # 'scratch' or 'resume'
 # data
-vocab_source = "llama2" # Default, your command sets 'custom'
-vocab_size = 32000      # Default, your command sets 128
-batch_size = 64         # Default, your command sets 32
-max_seq_len = 512
+vocab_source = "custom"
+vocab_size = 128    # Example vocab size, can be adjusted
+batch_size = 32     # Batch size for training
+max_seq_len = 512   # Maximum sequence length for training
 # model
-dim = 512               # Default, your command sets 128
-n_layers = 8            # Default, your command sets 5
-n_heads = 8             # Default, your command sets 8
-n_kv_heads = 8          # Default, your command sets 4
+dim = 128           # Model dimension
+n_layers = 5        # Number of transformer layers
+n_heads = 8         # Number of attention heads
+n_kv_heads = 4      # Number of key/value heads
 multiple_of = 32
 dropout = 0.0
 # adamw optimizer
@@ -61,13 +62,13 @@ grad_clip = 1.0
 adam_eps = 1e-10
 # learning rate decay settings
 decay_lr = True
-max_iters  = 100000      # Default, your command sets 100
+max_iters = 100
 min_lr = base_learning_rate / 10.0
 cooldown_frac = 0.1
 # system
 device = "cuda"         # Assumes CUDA is available
 dtype = "float16"
-compile = True          # Default, your command sets False
+compile = True # Default to True, can be overridden by command line
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith("_") and isinstance(v, (int, float, bool, str))]
 # configurator.py is ESSENTIAL for applying your command-line arguments
