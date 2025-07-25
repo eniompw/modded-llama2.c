@@ -34,7 +34,7 @@ def next_multiple_of_n(v: float | int, *, n: int):
 # -----------------------------------------------------------------------------
 # Default configuration
 out_dir = "out"
-eval_interval = 5000     # Evaluate every 5000 iterations
+eval_interval = 100     # Evaluate every 100 iterations
 log_interval = 10        # Log every 10 iterations
 eval_iters = 50          # Number of iterations to evaluate loss
 eval_only = False        # If True, only evaluate and exit
