@@ -63,3 +63,22 @@ jq '.[0]' data00.json
   "source": "GPT-4"
 }
 ```
+
+## Pre-tokenization
+
+The `.json` files are processed to create binary (`.bin`) files that are used for training the model. This is done using the `pretokenize` command:
+
+```bash
+python tinystories.py pretokenize
+```
+
+This script performs the following steps:
+
+1.  It reads each `dataXX.json` file.
+2.  For each entry in the JSON array, it extracts the `story` text.
+3.  The story text is then tokenized using the Llama 2 tokenizer. This converts the text into a sequence of integers.
+4.  A special "beginning of sentence" (BOS) token is added to the start of each tokenized story.
+5.  All the tokenized stories from a single `.json` file are concatenated into one long sequence of integers.
+6.  This sequence is saved as a binary file with the same name, but with a `.bin` extension (e.g., `data00.json` is processed into `data00.bin`).
+
+These `.bin` files are the final pre-processed data used for training the language model.
