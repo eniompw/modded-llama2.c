@@ -74,6 +74,36 @@ jq '.[] | .story | length' data00.json | awk '{ total += $1; count++ } END { pri
 
 This gives an average story size of approximately **775 characters**.
 
+### Total Story Size
+
+The total number of characters in all stories can be calculated with a simple Python script.
+
+First, create a file named `count_chars.py`:
+```python
+import json
+
+def count_story_chars(file_path):
+    total_chars = 0
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+        for item in data:
+            if 'story' in item:
+                total_chars += len(item['story'])
+    return total_chars
+
+if __name__ == "__main__":
+    file_path = 'data00.json'
+    total_characters = count_story_chars(file_path)
+    print(f"The total number of characters in all stories is: {total_characters}")
+```
+
+Then, run the script:
+```bash
+python3 count_chars.py
+```
+
+This gives a total of **77,486,885 characters**.
+
 ### What data is used for training?
 
 Only the text from the `story` key is used. The other fields, like `instruction` and `summary`, are ignored during training.
