@@ -44,7 +44,7 @@ init_from = "scratch"   # 'scratch' or 'resume'
 vocab_source = "custom"
 vocab_size = 128    # Example vocab size, can be adjusted
 batch_size = 32     # Batch size for training
-max_seq_len = 512   # Maximum sequence length for training
+max_seq_len = 256   # Maximum sequence length for training
 # model
 dim = 128           # Model dimension
 n_layers = 5        # Number of transformer layers
@@ -246,10 +246,8 @@ while True:
 
         if losses["val"] < best_val_loss or always_save_checkpoint:
             if losses["val"] < best_val_loss:
-                 best_val_loss = losses["val"]
-                 print(f"New best val loss: {best_val_loss:.4f}")
-            # Note: always_save_checkpoint is True based on your command
-            if iter_num > 0 or always_save_checkpoint:
+                best_val_loss = losses["val"]
+                print(f"New best val loss: {best_val_loss:.4f}")
                 # Simplified checkpoint, omits optimizer state
                 checkpoint = {
                     "model": raw_model.state_dict(), "model_args": model_args,
