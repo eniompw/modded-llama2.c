@@ -33,8 +33,8 @@ The `Baby_Llama_128.ipynb` notebook demonstrates a complete workflow. Here are t
 *   **`train.py`**: The Python script that trains the LLaMA model.
 *   **`run`**: The compiled C executable for inference.
 *   **`out/model.bin`**: The binary file with the trained model weights.
-*   **`tok128.model`**: The custom tokenizer model.
-*   **`data/tok128.bin`**: A C-compatible binary version of the tokenizer data.
+*   **`tok128.model`**: The custom tokenizer model file used by Python scripts. It is loaded by `train.py` for training and by `tokenizer.py` to create the C-compatible `.bin` version.
+*   **`data/tok128.bin`**: A C-compatible binary version of the tokenizer data, created from `tok128.model`. This file is used directly by the C inference engine (`run`).
 *   **`data00.bin`**: A binary file with the pre-tokenized training data.
 
 ## Features
