@@ -64,6 +64,16 @@ jq '.[0]' data00.json
 }
 ```
 
+## Story Size
+
+The average size of a story can be calculated using `jq` and `awk`:
+
+```bash
+jq '.[] | .story | length' data00.json | awk '{ total += $1; count++ } END { print "Average story size:", total/count }'
+```
+
+This gives an average story size of approximately **775 characters**.
+
 ## Pre-tokenization
 
 The `.json` files are processed to create binary (`.bin`) files that are used for training the model. This is done using the `pretokenize` command:
