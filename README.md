@@ -59,6 +59,21 @@ Each entry in the dataset includes:
 
 The raw data is provided as `.json` files, which are then pre-tokenized into binary (`.bin`) files for efficient loading during training. For a detailed explanation of the data, how it's structured for training, and what constitutes a batch, please see the [`tinystories_dataset_info.md`](tinystories_dataset_info.md) file.
 
+### Training Iterations per Epoch
+
+An "epoch" in this context refers to one full pass over the training data. Given the size of the `data00.bin` file and the default training settings, we can calculate the number of iterations in a single epoch.
+
+-   **Total Tokens in `data00.bin`**: 57,979,674
+-   **Default Batch Size**: 32
+-   **Default Sequence Length**: 512
+
+The number of tokens processed per iteration is `32 * 512 = 16,384`.
+
+Therefore, the total number of training iterations for one epoch over `data00.bin` is:
+`57,979,674 / 16,384 ≈ 3,538 iterations`
+
+This means you can run approximately **3,538 training iterations** before you've seen the entire `data00.bin` dataset once.
+
 ## Data Preparation (using tinystories.py)
 
 The `tinystories.py` script handles dataset downloading and tokenization.
@@ -122,6 +137,19 @@ Key training parameters:
 
 Refer to `Baby_Llama_128.ipynb` for a practical example of training a small model.
 
+### Chinchilla-Optimal Training
+
+According to the DeepMind "Chinchilla" paper, compute-optimal training is achieved by using approximately **20 tokens of training data for every parameter** in the model. For the default model in this project:
+
+-   **Model Parameters**: ~0.96 Million
+-   **Optimal Tokens**: `0.96M params * 20 tokens/param = 19.2M tokens`
+-   **Tokens per Iteration**: `32 (batch) * 512 (seq_len) = 16,384 tokens`
+
+The Chinchilla-optimal number of iterations is therefore:
+`19,200,000 / 16,384 ≈ 1,167 iterations`
+
+This suggests that for the default model size, training for around **1,167 iterations** would provide the best performance for the given compute budget.
+
 ## Inference
 
 To run inference with a trained model (e.g., the one from the training example above):
@@ -162,6 +190,22 @@ The implementation follows the LLaMA 2 architecture with:
 - SwiGLU activation function
 - Grouped-Query Attention (GQA)
 - Sliding window attention
+
+### Default Configuration Parameters
+
+The default network configuration in `train.py` results in a model with approximately **0.96 million** parameters. Here is a breakdown based on the default settings:
+
+-   **Model Dimension (`dim`)**: 128
+-   **Number of Layers (`n_layers`)**: 5
+-   **Number of Heads (`n_heads`)**: 8
+-   **Vocabulary Size (`vocab_size`)**: 128
+
+**Parameter Breakdown:**
+
+-   **Token Embeddings**: ~16k
+-   **Transformer Blocks (5 layers)**: ~923k
+-   **Final Output Layer**: ~16k
+-   **Total**: **~0.96 Million Parameters**
 
 ## License
 
