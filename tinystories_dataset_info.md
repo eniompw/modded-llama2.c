@@ -134,3 +134,32 @@ This script performs the following steps:
 6.  This sequence is saved as a binary file with the same name, but with a `.bin` extension (e.g., `data00.json` is processed into `data00.bin`).
 
 These `.bin` files are the final pre-processed data used for training the language model.
+
+## Token Count
+
+The number of tokens in a `.bin` file can be calculated by dividing the file size in bytes by 2 (since each token is a `uint16`).
+
+A simple Python script `count_tokens.py` can do this:
+```python
+import os
+
+# filepath: count_tokens.py
+file_path = 'data00.bin'
+# Each token is a uint16, which is 2 bytes
+token_size_in_bytes = 2
+
+try:
+    file_size_in_bytes = os.path.getsize(file_path)
+    num_tokens = file_size_in_bytes // token_size_in_bytes
+    print(f"The file '{file_path}' contains {num_tokens:,} tokens.")
+except FileNotFoundError:
+    print(f"Error: The file '{file_path}' was not found. Please generate it first.")
+except Exception as e:
+    print(f"An error occurred: {e}")
+```
+
+Running this script on `data00.bin`:
+```bash
+python3 count_tokens.py
+```
+Shows that `data00.bin` contains **57,979,674** tokens.
