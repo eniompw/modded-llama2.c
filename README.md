@@ -24,6 +24,19 @@ The notebook will guide you through:
 
 This notebook is designed to be a self-contained example that showcases the project's capabilities from data preparation to generation.
 
+### File Summary
+
+The `Baby_Llama_128.ipynb` notebook demonstrates a complete workflow. Here are the key files involved:
+
+*   **`Baby_Llama_128.ipynb`**: The Jupyter notebook that orchestrates the entire process.
+*   **`download_tinystories.sh`**: A shell script that downloads the dataset and tokenizer, and compiles the C inference code.
+*   **`train.py`**: The Python script that trains the LLaMA model.
+*   **`run`**: The compiled C executable for inference.
+*   **`out/model.bin`**: The binary file with the trained model weights.
+*   **`tok128.model`**: The custom tokenizer model.
+*   **`data/tok128.bin`**: A C-compatible binary version of the tokenizer data.
+*   **`data00.bin`**: A binary file with the pre-tokenized training data.
+
 ## Features
 
 - Simplified implementation designed to run in Jupyter notebooks or standalone Python
