@@ -74,6 +74,18 @@ jq '.[] | .story | length' data00.json | awk '{ total += $1; count++ } END { pri
 
 This gives an average story size of approximately **775 characters**.
 
+### What data is used for training?
+
+Only the text from the `story` key is used. The other fields, like `instruction` and `summary`, are ignored during training.
+
+### How is the data structured for training?
+
+During pre-tokenization, all stories are concatenated into a single, continuous stream of tokens. The model is trained on this long sequence, without regard for where individual stories begin or end.
+
+### What is a training batch?
+
+A batch does **not** consist of a set number of stories. Instead, it is a collection of smaller chunks sliced from the continuous token stream. For example, with `batch_size=32` and `max_seq_len=512`, a single batch consists of 32 parallel sequences, each 512 tokens long. A sequence within a batch can therefore contain the end of one story and the beginning of another. This approach ensures efficient training on large text corpora.
+
 ## Pre-tokenization
 
 The `.json` files are processed to create binary (`.bin`) files that are used for training the model. This is done using the `pretokenize` command:
