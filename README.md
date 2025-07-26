@@ -1,5 +1,7 @@
 # modded-llama2.c
 
+# modded-llama2.c
+
 An updated version of BabyLlama that runs in a Jupyter notebook, building on llama2.c and incorporating training improvements from modded-nanogpt. Focuses on training with the TinyStories dataset.
 
 ## Overview
@@ -9,6 +11,28 @@ This project is:
 - Based on [llama2.c](https://github.com/karpathy/llama2.c) - Pure C implementation of LLaMA 2
 - Incorporates training improvements from [modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt)
 - Focuses on efficient training with the TinyStories dataset
+
+## Getting Started with the Baby Llama 128 Example Notebook
+
+For a quick start, the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) notebook provides a complete, hands-on example of the entire workflow. It is the recommended starting point.
+
+The notebook will guide you through:
+1.  **Cloning the Repository**: It starts by cloning the `modded-llama2.c` repository into your environment.
+2.  **Downloading Data**: It runs a script to download the pre-tokenized TinyStories dataset and a custom 128-token SentencePiece model. It also compiles the C code needed for inference.
+3.  **Training the Model**: It trains a small LLaMA model with a 128-token vocabulary for 1 iteration.
+4.  **Running Inference**: Finally, it demonstrates how to run inference with the newly trained model to generate text.
+
+This notebook is designed to be a self-contained example that showcases the project's capabilities from data preparation to generation.
+
+## Features
+
+- Simplified implementation designed to run in Jupyter notebooks or standalone Python
+- Pure C implementation for maximum performance and minimal dependencies for inference
+- Efficient training with gradient accumulation and mixed precision
+- Cosine learning rate scheduling with warmup
+- Gradient clipping and optimization techniques
+- Checkpointing and model export capabilities
+- The primary `train.py` script is a simplified single-process version. Advanced features like DDP or comprehensive WandB integration might require custom modifications.
 
 ## Dataset: TinyStories
 
@@ -21,58 +45,6 @@ Each entry in the dataset includes:
 - `source`: The model that generated the story (e.g., "GPT-4").
 
 The raw data is provided as `.json` files, which are then pre-tokenized into binary (`.bin`) files for efficient loading during training. The pre-tokenization process converts each story into a sequence of integers and adds a beginning-of-sentence (BOS) token.
-
-## Key Improvements from modded-nanogpt
-
-### Architecture Improvements (via model.py modifications)
-- QK-Normalization for improved training stability
-- Zero-initialized projections for better convergence
-- Untied & padded vocabulary head
-- Logit Softcapping to control output distributions
-
-## Getting Started with Jupyter Notebook
-
-For a quick start, the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) notebook provides a complete, hands-on example of how to:
-1.  Clone the repository.
-2.  Download the pre-tokenized TinyStories dataset.
-3.  Train a small model (128-token vocabulary).
-4.  Run inference with the trained model.
-
-The notebook is the recommended starting point for understanding the end-to-end workflow.
-
-### Training Improvements
-- Parameter-grouped AdamW optimizer with different learning rates for:
-  - Embedding layers
-  - Hidden matrix weights
-  - Norm/scalar parameters
-  - Head layer
-- Improved learning rate schedule: stable period followed by cosine decay
-- Efficient gradient accumulation with mixed precision
-- TinyStories dataset focus, with flexible vocabulary options (e.g., Llama 2 default, or smaller custom vocabularies like 128 tokens as seen in examples).
-
-## Features
-
-- Simplified implementation designed to run in Jupyter notebooks or standalone Python
-- Pure C implementation for maximum performance and minimal dependencies for inference
-- Efficient training with gradient accumulation and mixed precision
-- Cosine learning rate scheduling with warmup
-- Gradient clipping and optimization techniques
-- Checkpointing and model export capabilities
-- The primary `train.py` script is a simplified single-process version. Advanced features like DDP or comprehensive WandB integration might require custom modifications.
-
-## Requirements
-
-- C compiler (gcc/clang)
-- CUDA toolkit (for GPU support)
-- Python 3.8+ (for training script and data preparation)
-- PyTorch
-- SentencePiece (for custom vocabulary training via `tinystories.py`)
-
-## Building
-
-```bash
-make
-```
 
 ## Data Preparation (using tinystories.py)
 
@@ -107,19 +79,19 @@ The `train.py` script is highly simplified for single-process runs. Optimizer st
 To train a model (example using a custom 128-token vocabulary):
 
 ```bash
-python train.py \
-  --out_dir=out/my_tinystory_model \
-  --vocab_source=custom \
-  --vocab_size=128 \
-  --dim=288 \
-  --n_layers=6 \
-  --n_heads=6 \
-  --n_kv_heads=6 \
-  --batch_size=32 \
-  --gradient_accumulation_steps=4 \
-  --base_learning_rate=5e-4 \
-  --max_iters=2000 \
-  --eval_interval=100 \
+python train.py 
+  --out_dir=out/my_tinystory_model 
+  --vocab_source=custom 
+  --vocab_size=128 
+  --dim=288 
+  --n_layers=6 
+  --n_heads=6 
+  --n_kv_heads=6 
+  --batch_size=32 
+  --gradient_accumulation_steps=4 
+  --base_learning_rate=5e-4 
+  --max_iters=2000 
+  --eval_interval=100 
   --always_save_checkpoint=True
 ```
 
@@ -150,6 +122,24 @@ Parameters:
 - `-t <temperature>`: Temperature for sampling (e.g., 0.8).
 - `-n <steps>`: Number of tokens to generate.
 - `-i <prompt>`: Input prompt.
+
+## Key Improvements from modded-nanogpt
+
+### Architecture Improvements (via model.py modifications)
+- QK-Normalization for improved training stability
+- Zero-initialized projections for better convergence
+- Untied & padded vocabulary head
+- Logit Softcapping to control output distributions
+
+### Training Improvements
+- Parameter-grouped AdamW optimizer with different learning rates for:
+  - Embedding layers
+  - Hidden matrix weights
+  - Norm/scalar parameters
+  - Head layer
+- Improved learning rate schedule: stable period followed by cosine decay
+- Efficient gradient accumulation with mixed precision
+- TinyStories dataset focus, with flexible vocabulary options (e.g., Llama 2 default, or smaller custom vocabularies like 128 tokens as seen in examples).
 
 ## Model Architecture
 
