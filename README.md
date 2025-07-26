@@ -44,15 +44,7 @@ Each entry in the dataset includes:
 - `summary`: A one-sentence summary.
 - `source`: The model that generated the story (e.g., "GPT-4").
 
-The raw data is provided as `.json` files, which are then pre-tokenized into binary (`.bin`) files for efficient loading during training. The pre-tokenization process converts each story into a sequence of integers and adds a beginning-of-sentence (BOS) token.
-
-### Training Data Details
-
-- **What data is used for training?** Only the text from the `story` key is used. The other fields, like `instruction` and `summary`, are ignored during training.
-
-- **How is the data structured for training?** During pre-tokenization, all stories are concatenated into a single, continuous stream of tokens. The model is trained on this long sequence, without regard for where individual stories begin or end.
-
-- **What is a training batch?** A batch does **not** consist of a set number of stories. Instead, it is a collection of smaller chunks sliced from the continuous token stream. For example, with `batch_size=32` and `max_seq_len=512`, a single batch consists of 32 parallel sequences, each 512 tokens long. A sequence within a batch can therefore contain the end of one story and the beginning of another. This approach ensures efficient training on large text corpora.
+The raw data is provided as `.json` files, which are then pre-tokenized into binary (`.bin`) files for efficient loading during training. For a detailed explanation of the data, how it's structured for training, and what constitutes a batch, please see the [`tinystories_dataset_info.md`](tinystories_dataset_info.md) file.
 
 ## Data Preparation (using tinystories.py)
 
