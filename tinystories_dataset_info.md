@@ -1,5 +1,16 @@
 # TinyStories Dataset Info
 
+This document provides a comprehensive guide to the TinyStories dataset as used in this project. It covers the data source, file structure, content, and the pre-processing steps required for training a language model, from downloading the raw data to pre-tokenizing it for training.
+
+## Table of Contents
+
+- [Data Source](#data-source)
+- [File Structure](#file-structure)
+- [Entry Structure](#entry-structure)
+- [Story Size](#story-size)
+- [Data Preparation and Pre-tokenization](#data-preparation-and-pre-tokenization)
+- [Token Count](#token-count)
+
 This document explains the data from the [TinyStories dataset on Hugging Face](https://huggingface.co/datasets/roneneldan/TinyStories), providing a brief overview of the structure and content of the `data00.json` file.
 
 ## Data Source
