@@ -1,111 +1,78 @@
 # modded-llama2.c
 
-# modded-llama2.c
+`modded-llama2.c` is a streamlined and enhanced version of [BabyLlama](https://github.com/EN10/BabyLlama), designed for simplicity and power. It runs seamlessly in Jupyter notebooks, making it easy to train and experiment with LLaMA 2 models. This project builds upon the solid foundation of Andrej Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and integrates advanced training techniques from [modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
-An updated version of BabyLlama that runs in a Jupyter notebook, building on llama2.c and incorporating training improvements from modded-nanogpt. Focuses on training with the TinyStories dataset.
+The primary focus is on providing an accessible yet powerful platform for training language models on the [TinyStories dataset](https://huggingface.co/datasets/roneneldan/TinyStories). Whether you're a researcher, a student, or a hobbyist, this repository offers a hands-on approach to understanding and building modern LLMs.
 
-## Overview
-
-This project is:
-- An updated version of [BabyLlama](https://github.com/EN10/BabyLlama) - Simplified LLaMA for Jupyter notebooks
-- Based on [llama2.c](https://github.com/karpathy/llama2.c) - Pure C implementation of LLaMA 2
-- Incorporates training improvements from [modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt)
-- Focuses on efficient training with the TinyStories dataset
-
-## Getting Started with the Baby Llama 128 Example Notebook
-
-For a quick start, the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) notebook provides a complete, hands-on example of the entire workflow. It is the recommended starting point.
-
-The notebook will guide you through:
-1.  **Cloning the Repository**: It starts by cloning the `modded-llama2.c` repository into your environment.
-2.  **Downloading Data**: It runs a script to download the pre-tokenized TinyStories dataset and a custom 128-token SentencePiece model. It also compiles the C code needed for inference.
-3.  **Training the Model**: It trains a small LLaMA model with a 128-token vocabulary for 1 iteration.
-4.  **Running Inference**: Finally, it demonstrates how to run inference with the newly trained model to generate text.
-
-This notebook is designed to be a self-contained example that showcases the project's capabilities from data preparation to generation.
-
-### File Summary
-
-The `Baby_Llama_128.ipynb` notebook demonstrates a complete workflow. Here are the key files involved:
-
-*   **`Baby_Llama_128.ipynb`**: The Jupyter notebook that orchestrates the entire process.
-*   **`download_tinystories.sh`**: A shell script that downloads the dataset and tokenizer, and compiles the C inference code.
-*   **`train.py`**: The Python script that trains the LLaMA model.
-*   **`run`**: The compiled C executable for inference.
-*   **`out/model.bin`**: The binary file with the trained model weights.
-*   **`tok128.model`**: The custom tokenizer model file used by Python scripts. It is loaded by `train.py` for training and by `tokenizer.py` to create the C-compatible `.bin` version.
-*   **`data/tok128.bin`**: A C-compatible binary version of the tokenizer data, created from `tok128.model`. This file is used directly by the C inference engine (`run`).
-*   **`data00.bin`**: A binary file with the pre-tokenized training data.
+## Table of Contents
+- [Features](#features)
+- [Getting Started](#getting-started)
+  - [Quick Start: The `Baby_Llama_128.ipynb` Notebook](#quick-start-the-baby_llama_128ipynb-notebook)
+- [Usage](#usage)
+  - [Data Preparation](#data-preparation)
+  - [Training](#training)
+  - [Inference](#inference)
+- [Model Architecture](#model-architecture)
+- [Dataset: TinyStories](#dataset-tinystories)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ## Features
 
-- Simplified implementation designed to run in Jupyter notebooks or standalone Python
-- Pure C implementation for maximum performance and minimal dependencies for inference
-- Efficient training with gradient accumulation and mixed precision
-- Cosine learning rate scheduling with warmup
-- Gradient clipping and optimization techniques
-- Checkpointing and model export capabilities
+- Simplified implementation designed to run in Jupyter notebooks or standalone Python.
+- Pure C implementation for maximum performance and minimal dependencies for inference.
+- Efficient training with gradient accumulation and mixed precision.
+- Cosine learning rate scheduling with warmup.
+- Gradient clipping and optimization techniques.
+- Checkpointing and model export capabilities.
 - The primary `train.py` script is a simplified single-process version. Advanced features like DDP or comprehensive WandB integration might require custom modifications.
 
-## Dataset: TinyStories
+### Key Improvements from modded-nanogpt
 
-This project uses the [TinyStories dataset](https://huggingface.co/datasets/roneneldan/TinyStories), a collection of short stories generated by language models. The dataset is ideal for training smaller models due to its simple vocabulary and narrative structure.
+<details>
+<summary>Click to expand for details</summary>
 
-Each entry in the dataset includes:
-- `story`: The text of the story.
-- `instruction`: The prompt used to generate the story, including required words and features.
-- `summary`: A one-sentence summary.
-- `source`: The model that generated the story (e.g., "GPT-4").
+- **Architecture Improvements (via `model.py` modifications)**
+  - QK-Normalization for improved training stability
+  - Zero-initialized projections for better convergence
+  - Untied & padded vocabulary head
+  - Logit Softcapping to control output distributions
+- **Training Improvements**
+  - Parameter-grouped AdamW optimizer with different learning rates for:
+    - Embedding layers
+    - Hidden matrix weights
+    - Norm/scalar parameters
+    - Head layer
+  - Improved learning rate schedule: stable period followed by cosine decay
+  - Efficient gradient accumulation with mixed precision
+  - TinyStories dataset focus, with flexible vocabulary options (e.g., Llama 2 default, or smaller custom vocabularies like 128 tokens).
+</details>
 
-The raw data is provided as `.json` files, which are then pre-tokenized into binary (`.bin`) files for efficient loading during training. For a detailed explanation of the data, how it's structured for training, and what constitutes a batch, please see the [`tinystories_dataset_info.md`](tinystories_dataset_info.md) file.
+## Getting Started
 
-### Training Iterations per Epoch
+### Quick Start: The `Baby_Llama_128.ipynb` Notebook
 
-An "epoch" in this context refers to one full pass over the training data. Given the size of the `data00.bin` file and the default training settings, we can calculate the number of iterations in a single epoch.
+For a complete, hands-on example of the entire workflow, the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) notebook is the recommended starting point.
 
--   **Total Tokens in `data00.bin`**: 57,979,674
--   **Default Batch Size**: 32
--   **Default Sequence Length**: 512
+The notebook will guide you through:
+1.  **Environment Setup**: It clones the repository and installs dependencies.
+2.  **Data Download**: It runs a script to download the pre-tokenized TinyStories dataset, a custom 128-token SentencePiece model, and compiles the C code for inference.
+3.  **Model Training**: It trains a small LLaMA model with a 128-token vocabulary for 1 iteration.
+4.  **Inference**: It demonstrates how to run inference with the newly trained model to generate text.
 
-The number of tokens processed per iteration is `32 * 512 = 16,384`.
+This notebook is a self-contained example that showcases the project's capabilities from data preparation to generation.
 
-Therefore, the total number of training iterations for one epoch over `data00.bin` is:
-`57,979,674 / 16,384 ≈ 3,538 iterations`
+## Usage
 
-This means you can run approximately **3,538 training iterations** before you've seen the entire `data00.bin` dataset once.
+### Data Preparation
 
-## Data Preparation (using tinystories.py)
+All data preparation, including downloading and pre-tokenization, is handled by the `tinystories.py` script. For detailed instructions on how to prepare the TinyStories dataset for training, please refer to the [`tinystories_dataset_info.md`](tinystories_dataset_info.md) file.
 
-The `tinystories.py` script handles dataset downloading and tokenization.
+### Training
 
-**1. Download TinyStories data:**
-```bash
-python tinystories.py download
-```
+The `train.py` script is used for training. Optimizer state is not resumed by default when using `init_from="resume"`.
 
-**2. Pretokenize the data:**
-
-*   **Option A: Using the default Llama 2 tokenizer (vocab size ~32000):**
-    This is the default for `train.py` if `--vocab_source` is not specified or set to `llama2`.
-    ```bash
-    python tinystories.py pretokenize
-    ```
-    The training script will expect `vocab_size` to match the Llama 2 tokenizer's vocabulary size.
-
-*   **Option B: Training a custom SentencePiece tokenizer and pretokenizing:**
-    For example, to train a 128-token vocabulary:
-    ```bash
-    python tinystories.py train_vocab --vocab_size=128
-    python tinystories.py pretokenize --vocab_size=128
-    ```
-    When training with this custom tokenizer, you'll need to specify `--vocab_source=custom` and `--vocab_size=128` to `train.py`. The C-level tokenizer file will be `data/tok128.bin`. Note that the [`Baby_Llama_128.ipynb`](Baby_Llama_128.ipynb) example downloads pre-built tokenizer files for a 128-token vocabulary, including [`tok128.vocab`](https://huggingface.co/datasets/enio/TinyStories/blob/main/tok128/tok128.vocab) and `tok128.model`, from Hugging Face to generate `data/tok128.bin`.
-
-## Training
-
-The `train.py` script is highly simplified for single-process runs. Optimizer state is not resumed by default when using `init_from="resume"`.
-
-To train a model (example using a custom 128-token vocabulary):
-
+**Example command (custom 128-token vocabulary):**
 ```bash
 python train.py 
   --out_dir=out/my_tinystory_model 
@@ -123,21 +90,26 @@ python train.py
   --always_save_checkpoint=True
 ```
 
-Key training parameters:
-- `--out_dir`: Output directory for checkpoints and the final `model.bin`.
-- `--vocab_source`: `llama2` (default) or `custom`. If `custom`, ensure you've run `tinystories.py train_vocab` and `pretokenize` for the specified `--vocab_size`.
-- `--vocab_size`: Vocabulary size. Must match the pretokenized data. (e.g., 32000 for `llama2`, or your custom size).
-- `--dim`, `--n_layers`, `--n_heads`, `--n_kv_heads`: Model dimensions.
-- `--batch_size`: Batch size for training.
-- `--gradient_accumulation_steps`: Number of steps for gradient accumulation.
-- `--base_learning_rate`: Initial learning rate.
-- `--max_iters`: Maximum number of training iterations.
-- `--cooldown_frac`: Fraction of training to spend cooling down LR.
-- `--compile`: Set to `True` to attempt PyTorch model compilation (requires PyTorch 2.0+). Default is `False` in the simplified script if not otherwise configured.
+<details>
+<summary><b>Key Training Parameters</b></summary>
 
-Refer to `Baby_Llama_128.ipynb` for a practical example of training a small model.
+| Parameter                       | Description                                                                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--out_dir`                     | Output directory for checkpoints and the final `model.bin`.                                                                            |
+| `--vocab_source`                | `llama2` (default) or `custom`. If `custom`, ensure you've run `tinystories.py train_vocab` and `pretokenize`.                           |
+| `--vocab_size`                  | Vocabulary size. Must match the pretokenized data (e.g., 32000 for `llama2`).                                                          |
+| `--dim`, `--n_layers`, etc.     | Model dimensions.                                                                                                                      |
+| `--batch_size`                  | Batch size for training.                                                                                                               |
+| `--gradient_accumulation_steps` | Number of steps for gradient accumulation.                                                                                             |
+| `--base_learning_rate`          | Initial learning rate.                                                                                                                 |
+| `--max_iters`                   | Maximum number of training iterations.                                                                                                 |
+| `--cooldown_frac`               | Fraction of training to spend cooling down LR.                                                                                         |
+| `--compile`                     | Set to `True` to attempt PyTorch model compilation (requires PyTorch 2.0+).                                                            |
 
-### Chinchilla-Optimal Training
+</details>
+
+<details>
+<summary><b>Chinchilla-Optimal Training</b></summary>
 
 According to the DeepMind "Chinchilla" paper, compute-optimal training is achieved by using approximately **20 tokens of training data for every parameter** in the model. For the default model in this project:
 
@@ -150,37 +122,25 @@ The Chinchilla-optimal number of iterations is therefore:
 
 This suggests that for the default model size, training for around **1,167 iterations** would provide the best performance for the given compute budget.
 
-## Inference
+</details>
 
-To run inference with a trained model (e.g., the one from the training example above):
+### Inference
+
+To run inference with a trained model, use the compiled `run` executable.
 
 ```bash
+# First, compile the C code if you haven't already
+gcc -O3 -o run run.c -lm
+
+# Run inference
 ./run out/my_tinystory_model/model.bin -z data/tok128.bin -t 0.8 -n 256 -i "Once upon a time"
 ```
-Parameters:
-- First argument: path to the `model.bin` file.
-- `-z <tokenizer_path>`: Path to the C-level tokenizer file (e.g., `data/tok<vocab_size>.bin` generated by `tokenizer.py` based on your SentencePiece model, or `data/llama2_tokenizer.bin` if using Llama 2 tokenizer).
-- `-t <temperature>`: Temperature for sampling (e.g., 0.8).
-- `-n <steps>`: Number of tokens to generate.
-- `-i <prompt>`: Input prompt.
-
-## Key Improvements from modded-nanogpt
-
-### Architecture Improvements (via model.py modifications)
-- QK-Normalization for improved training stability
-- Zero-initialized projections for better convergence
-- Untied & padded vocabulary head
-- Logit Softcapping to control output distributions
-
-### Training Improvements
-- Parameter-grouped AdamW optimizer with different learning rates for:
-  - Embedding layers
-  - Hidden matrix weights
-  - Norm/scalar parameters
-  - Head layer
-- Improved learning rate schedule: stable period followed by cosine decay
-- Efficient gradient accumulation with mixed precision
-- TinyStories dataset focus, with flexible vocabulary options (e.g., Llama 2 default, or smaller custom vocabularies like 128 tokens as seen in examples).
+**Parameters:**
+-   `model.bin`: Path to the trained model weights.
+-   `-z <tokenizer_path>`: Path to the C-level tokenizer file (e.g., `data/tok128.bin`).
+-   `-t <temperature>`: Sampling temperature (e.g., 0.8).
+-   `-n <steps>`: Number of tokens to generate.
+-   `-i <prompt>`: Input prompt.
 
 ## Model Architecture
 
@@ -189,27 +149,49 @@ The implementation follows the LLaMA 2 architecture with:
 - RoPE positional embeddings
 - SwiGLU activation function
 - Grouped-Query Attention (GQA)
-- Sliding window attention
 
-### Default Configuration Parameters
+<details>
+<summary><b>Default Configuration (~0.96M Parameters)</b></summary>
 
-The default network configuration in `train.py` results in a model with approximately **0.96 million** parameters. Here is a breakdown based on the default settings:
-
--   **Model Dimension (`dim`)**: 128
--   **Number of Layers (`n_layers`)**: 5
--   **Number of Heads (`n_heads`)**: 8
--   **Vocabulary Size (`vocab_size`)**: 128
+| Parameter      | Value |
+| -------------- | ----- |
+| `dim`          | 128   |
+| `n_layers`     | 5     |
+| `n_heads`      | 8     |
+| `vocab_size`   | 128   |
 
 **Parameter Breakdown:**
-
 -   **Token Embeddings**: ~16k
 -   **Transformer Blocks (5 layers)**: ~923k
 -   **Final Output Layer**: ~16k
 -   **Total**: **~0.96 Million Parameters**
 
+</details>
+
+## Dataset: TinyStories
+
+This project uses the [TinyStories dataset](https://huggingface.co/datasets/roneneldan/TinyStories), a collection of short stories generated by language models, ideal for training smaller models.
+
+For a detailed explanation of the data, how it's structured for training, and what constitutes a batch, please see the [`tinystories_dataset_info.md`](tinystories_dataset_info.md) file.
+
+<details>
+<summary><b>Training Iterations per Epoch</b></summary>
+
+An "epoch" in this context refers to one full pass over the training data.
+
+-   **Total Tokens in `data00.bin`**: 57,979,674
+-   **Default Batch Size**: 32
+-   **Default Sequence Length**: 512
+-   **Tokens per Iteration**: `32 * 512 = 16,384`
+
+Therefore, the total number of training iterations for one epoch is:
+`57,979,674 / 16,384 ≈ 3,538 iterations`
+
+</details>
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 

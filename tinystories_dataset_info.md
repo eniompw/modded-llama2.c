@@ -116,22 +116,42 @@ During pre-tokenization, all stories are concatenated into a single, continuous 
 
 A batch does **not** consist of a set number of stories. Instead, it is a collection of smaller chunks sliced from the continuous token stream. For example, with `batch_size=32` and `max_seq_len=512`, a single batch consists of 32 parallel sequences, each 512 tokens long. A sequence within a batch can therefore contain the end of one story and the beginning of another. This approach ensures efficient training on large text corpora.
 
-## Pre-tokenization
+## Data Preparation and Pre-tokenization
 
-The `.json` files are processed to create binary (`.bin`) files that are used for training the model. This is done using the `pretokenize` command:
+The `tinystories.py` script handles dataset downloading and tokenization.
 
+**1. Download TinyStories data:**
 ```bash
-python tinystories.py pretokenize
+python tinystories.py download
 ```
 
-This script performs the following steps:
+**2. Pretokenize the data:**
 
-1.  It reads each `dataXX.json` file.
-2.  For each entry in the JSON array, it extracts the `story` text.
-3.  The story text is then tokenized using the Llama 2 tokenizer. This converts the text into a sequence of integers.
-4.  A special "beginning of sentence" (BOS) token is added to the start of each tokenized story.
-5.  All the tokenized stories from a single `.json` file are concatenated into one long sequence of integers.
-6.  This sequence is saved as a binary file with the same name, but with a `.bin` extension (e.g., `data00.json` is processed into `data00.bin`).
+*   **Option A: Using the default Llama 2 tokenizer (vocab size ~32000):**
+    This is the default for `train.py` if `--vocab_source` is not specified or set to `llama2`.
+    ```bash
+    python tinystories.py pretokenize
+    ```
+
+*   **Option B: Training a custom SentencePiece tokenizer and pretokenizing:**
+    For example, to train a 128-token vocabulary:
+    ```bash
+    # 1. Train a custom tokenizer with a 128-token vocabulary
+    python tinystories.py train_vocab --vocab_size=128
+    
+    # 2. Pretokenize the data using the new tokenizer
+    python tinystories.py pretokenize --vocab_size=128
+    ```
+    When training with this custom tokenizer, you'll need to specify `--vocab_source=custom` and `--vocab_size=128` to `train.py`.
+
+The pre-tokenization process converts the raw `.json` files into binary (`.bin`) files that are used for training. It performs the following steps:
+
+1.  Reads each `dataXX.json` file.
+2.  Extracts the `story` text from each entry.
+3.  Tokenizes the text into a sequence of integers using the specified tokenizer.
+4.  Adds a special "beginning of sentence" (BOS) token to the start of each tokenized story.
+5.  Concatenates all tokenized stories from a single `.json` file into one long sequence.
+6.  Saves this sequence as a binary file (e.g., `data00.bin`).
 
 These `.bin` files are the final pre-processed data used for training the language model.
 
