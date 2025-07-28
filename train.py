@@ -33,42 +33,42 @@ def next_multiple_of_n(v: float | int, *, n: int):
 
 # -----------------------------------------------------------------------------
 # Default configuration
-out_dir = "out"
-eval_interval = 100     # Evaluate every 100 iterations
-log_interval = 10        # Log every 10 iterations
-eval_iters = 50          # Number of iterations to evaluate loss
-eval_only = False        # If True, only evaluate and exit
-always_save_checkpoint = True  # Always save checkpoint if validation loss improves
-init_from = "scratch"   # 'scratch' or 'resume'
+out_dir = "out"          # Output directory for checkpoints and logs
+eval_interval = 100      # How often to evaluate the model on the validation set
+log_interval = 10        # How often to print training logs
+eval_iters = 50          # Number of batches to use for estimating loss
+eval_only = False        # If True, run evaluation and exit without training
+always_save_checkpoint = True  # If True, save a checkpoint on every validation improvement
+init_from = "scratch"    # Start from scratch or 'resume' from a checkpoint
 # data
-vocab_source = "custom"
-vocab_size = 128    # Example vocab size, can be adjusted
-batch_size = 32     # Batch size for training
-max_seq_len = 256   # Maximum sequence length for training
+vocab_source = "custom"  # Source of the vocabulary
+vocab_size = 128         # Vocabulary size (must match tokenizer)
+batch_size = 32          # Number of sequences in a single batch
+max_seq_len = 256        # Maximum length of a sequence
 # model
-dim = 128           # Model dimension
-n_layers = 5        # Number of transformer layers
-n_heads = 8         # Number of attention heads
-n_kv_heads = 4      # Number of key/value heads
-multiple_of = 32
-dropout = 0.0
+dim = 128                # The dimension of the model's embeddings
+n_layers = 5             # Number of transformer layers
+n_heads = 8              # Number of attention heads
+n_kv_heads = 4           # Number of key/value heads (for Grouped Query Attention)
+multiple_of = 32         # Ensures hidden dimensions are multiples of this value for efficiency
+dropout = 0.0            # Dropout rate for regularization (0.0 means no dropout)
 # adamw optimizer
-gradient_accumulation_steps = 4
-base_learning_rate = 5e-4
-weight_decay = 1e-1
-beta1 = 0.9
-beta2 = 0.95
-grad_clip = 1.0
-adam_eps = 1e-10
+gradient_accumulation_steps = 4  # How many steps to accumulate gradients over before updating weights
+base_learning_rate = 5e-4    # The starting learning rate
+weight_decay = 1e-1          # Weight decay for regularization
+beta1 = 0.9                  # AdamW beta1 parameter
+beta2 = 0.95                 # AdamW beta2 parameter
+grad_clip = 1.0              # Gradient clipping to prevent exploding gradients
+adam_eps = 1e-10             # Epsilon value for AdamW to prevent division by zero
 # learning rate decay settings
-decay_lr = True
-max_iters = 100
-min_lr = base_learning_rate / 10.0
-cooldown_frac = 0.1
+decay_lr = True              # Whether to decay the learning rate
+max_iters = 100              # Total number of training iterations
+min_lr = base_learning_rate / 10.0  # The minimum learning rate to decay to
+cooldown_frac = 0.1          # Fraction of iterations to spend in the cooldown phase
 # system
-device = "cuda"         # Assumes CUDA is available
-dtype = "float16"
-compile = True # Default to True, can be overridden by command line
+device = "cuda"              # The device to train on ('cuda' or 'cpu')
+dtype = "float16"            # The data type for training ('float16', 'bfloat16', 'float32')
+compile = True               # Whether to compile the model with torch.compile for speed
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith("_") and isinstance(v, (int, float, bool, str))]
 # configurator.py is ESSENTIAL for applying your command-line arguments
